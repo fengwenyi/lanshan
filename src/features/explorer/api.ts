@@ -1,5 +1,5 @@
 import { Channel, invoke, isTauri } from '@tauri-apps/api/core';
-import type { Directory, SearchResult, FileRequest, Location, OperationProgress, FilePreviewData, PreviewKind } from './types';
+import type { LockProcess, Directory, SearchResult, FileRequest, Location, OperationProgress, FilePreviewData, PreviewKind } from './types';
 export const desktop = isTauri();
 export const files = {
   locations: () => invoke<Location[]>('locations'),
@@ -16,7 +16,7 @@ export const files = {
     context.putImageData(new ImageData(Uint8ClampedArray.from(data.rgba), data.width, data.height), 0, 0);
     return { src: canvas.toDataURL('image/png'), pixels: data.width };
   },
-  search: (path: string, query: string, showHidden: boolean) => invoke<SearchResult>('search_files', { request: { path, query, showHidden } }),
+  search: (path: string, query: string, showHidden: boolean, scope: 'tree' | 'computer' = 'tree') => invoke<SearchResult>('search_files', { request: { path, query, showHidden, scope } }),
   preview: async (path: string): Promise<FilePreviewData> => {
     const raw = await invoke<{ kind: PreviewKind; path: string | null; bytes: number[] | null; size: number; truncated: boolean }>('preview_file', { path });
     let text: string | null = null;
@@ -40,6 +40,7 @@ export const files = {
     progress.onmessage = onProgress;
     return invoke<void>('run_operation', { request, jobId, progress });
   },
+  inspectLocks: (path: string) => invoke<LockProcess[]>('inspect_file_locks', { path }),
   cancel: (jobId: string) => invoke<void>('cancel_operation', { jobId }),
 };
 export function errorMessage(error: unknown): string {

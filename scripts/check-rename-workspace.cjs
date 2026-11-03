@@ -35,6 +35,8 @@ export function run() {
  equal(!!renamePlan([file('gone.txt')], [], { ...defaultRenameRule, prefix: 'new-' })[0].error, true);
  const saved = { version: 1, tabs: [{ panes: [{ history: ['E:/docs'], cursor: 0, view: 'grid' }, { history: [], cursor: -1, view: 'list' }], activePane: 1 }], activeTab: 0, inspector: false, favorites: [{ name: '文稿', path: 'E:/docs' }] };
  equal(parseWorkspace(saved), saved);
+ const gallery = { ...saved, tabs: [{ panes: [{ history: ['E:/docs'], cursor: 0, view: 'gallery' }], activePane: 0 }] };
+ equal(parseWorkspace(gallery), gallery, 'gallery view survives workspace restore');
  equal(parseWorkspace({ ...saved, version: 99 }), null);
  equal(parseWorkspace({ ...saved, activeTab: 10 }), null);
  equal(parseWorkspace({ ...saved, tabs: [{ ...saved.tabs[0], activePane: 3 }] }), null);
@@ -55,6 +57,7 @@ export function run() {
  equal(state.tabs[0].panes.length, 2);
  state.addFavorite('E:/docs','文稿'); useExplorer.getState().addFavorite('e:\\docs\\','重复');
  equal(useExplorer.getState().favorites.length, 1);
+ useExplorer.getState().setView(paneId, 'gallery');
  const snapshot = workspaceSnapshot(useExplorer.getState());
  equal(parseWorkspace(snapshot), snapshot);
  equal(JSON.parse(window.localStorage.getItem(WORKSPACE_KEY)), snapshot);

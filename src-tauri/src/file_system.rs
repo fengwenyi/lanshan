@@ -5,7 +5,7 @@ use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct AppError { code: &'static str, message: String }
 pub(crate) type Reply<T> = Result<T, AppError>;
 pub(crate) fn fail(message: impl Into<String>) -> AppError { AppError { code: "FILE_OPERATION_FAILED", message: message.into() } }
@@ -117,7 +117,10 @@ pub struct Directory { path: String, parent: Option<String>, entries: Vec<Entry>
 struct Breadcrumb { name: String, path: String }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SearchRequest { path: String, query: String, show_hidden: bool }
+pub struct SearchRequest { path: String, query: String, show_hidden: bool, #[serde(default)] scope: SearchScope }
+#[derive(Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchScope { #[default] Tree, Computer }
 #[derive(Serialize)]
 pub struct SearchResult { entries: Vec<Entry>, scanned: usize, skipped: usize, limited: bool }
 
@@ -137,31 +140,47 @@ pub async fn search_files(app: tauri::AppHandle, request: SearchRequest) -> Repl
     if request.query.chars().count() > 256 { return Err(fail("搜索词最多 256 个字符。")); }
     tauri::async_runtime::spawn_blocking(move || {
         let access = app.state::<Access>();
-        let root = checked(&access, &request.path)?;
-        if !root.is_dir() { return Err(fail("请选择文件夹进行搜索。")); }
+        let roots = if request.scope == SearchScope::Computer {
+            let mut roots = Vec::new();
+            for location in known_locations(&app).into_iter().filter(|item| item.kind == "drive") {
+                if let Ok(path) = grant(&access, Path::new(&location.path)) { roots.push(PathBuf::from(path)); }
+            }
+            #[cfg(not(target_os = "windows"))]
+            roots.push(PathBuf::from(grant(&access, Path::new("/"))?));
+            if roots.is_empty() { return Err(fail("没有可搜索的磁盘。")); }
+            roots
+        } else {
+            let root = checked(&access, &request.path)?;
+            if !root.is_dir() { return Err(fail("请选择文件夹进行搜索。")); }
+            vec![root]
+        };
         let words: Vec<String> = request.query.to_lowercase().split_whitespace().map(String::from).collect();
         let mut result = SearchResult { entries: Vec::new(), scanned: 0, skipped: 0, limited: false };
-        let mut stack = vec![(root.clone(), 0)];
-        let started = Instant::now();
-        'scan: while let Some((folder, depth)) = stack.pop() {
-            if started.elapsed().as_secs() >= 3 { result.limited = true; break; }
-            let canonical = match checked(&access, &text(&folder)) { Ok(path) if path.starts_with(&root) => path, _ => { result.skipped += 1; continue; } };
-            let items = match fs::read_dir(canonical) { Ok(items) => items, Err(error) if depth == 0 => return Err(error.into()), Err(_) => { result.skipped += 1; continue; } };
-            for item in items {
-                if result.scanned >= 30000 || result.entries.len() >= 2000 || started.elapsed().as_secs() >= 3 { result.limited = true; break 'scan; }
-                result.scanned += 1;
-                let item = match item { Ok(item) => item, Err(_) => { result.skipped += 1; continue; } };
-                let name = item.file_name().to_string_lossy().into_owned();
-                if !request.show_hidden && name.starts_with('.') { continue; }
-                let path = item.path();
-                let metadata = match fs::symlink_metadata(&path) { Ok(meta) => meta, Err(_) => { result.skipped += 1; continue; } };
-                if is_link(&metadata) { result.skipped += 1; continue; }
-                if metadata.is_dir() {
-                    if depth < 32 { stack.push((path.clone(), depth + 1)); } else { result.limited = true; }
-                }
-                let folded_name = name.to_lowercase();
-                if words.iter().all(|word| folded_name.contains(word)) {
-                    result.entries.push(Entry { name, path: text(&path), is_directory: metadata.is_dir(), is_symlink: false, size: metadata.len(), modified: metadata.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|t| t.as_secs()).unwrap_or(0), extension: path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default() });
+        for root in roots {
+            let initial_scanned = result.scanned;
+            let initial_entries = result.entries.len();
+            let mut stack = vec![(root.clone(), 0)];
+            let started = Instant::now();
+            'scan: while let Some((folder, depth)) = stack.pop() {
+                if started.elapsed().as_secs() >= 3 { result.limited = true; break; }
+                let canonical = match checked(&access, &text(&folder)) { Ok(path) if path.starts_with(&root) => path, _ => { result.skipped += 1; continue; } };
+                let items = match fs::read_dir(canonical) { Ok(items) => items, Err(error) if depth == 0 && request.scope == SearchScope::Tree => return Err(error.into()), Err(_) => { result.skipped += 1; continue; } };
+                for item in items {
+                    if result.scanned - initial_scanned >= 30000 || result.entries.len() - initial_entries >= 2000 || started.elapsed().as_secs() >= 3 { result.limited = true; break 'scan; }
+                    result.scanned += 1;
+                    let item = match item { Ok(item) => item, Err(_) => { result.skipped += 1; continue; } };
+                    let name = item.file_name().to_string_lossy().into_owned();
+                    if !request.show_hidden && name.starts_with('.') { continue; }
+                    let path = item.path();
+                    let metadata = match fs::symlink_metadata(&path) { Ok(meta) => meta, Err(_) => { result.skipped += 1; continue; } };
+                    if is_link(&metadata) { result.skipped += 1; continue; }
+                    if metadata.is_dir() {
+                        if depth < 32 { stack.push((path.clone(), depth + 1)); } else { result.limited = true; }
+                    }
+                    let folded_name = name.to_lowercase();
+                    if words.iter().all(|word| folded_name.contains(word)) {
+                        result.entries.push(Entry { name, path: text(&path), is_directory: metadata.is_dir(), is_symlink: false, size: metadata.len(), modified: metadata.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|t| t.as_secs()).unwrap_or(0), extension: path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default() });
+                    }
                 }
             }
         }
@@ -204,7 +223,7 @@ pub async fn open_file(app: tauri::AppHandle, path: String) -> Reply<()> {
 #[serde(rename_all = "camelCase")]
 enum Action { CreateFolder, Rename, Copy, Move, Trash }
 #[derive(Deserialize)]
-pub struct FileRequest { action: Action, source: String, destination: Option<String>, name: Option<String> }
+pub struct FileRequest { action: Action, source: String, destination: Option<String>, name: Option<String>, approved_processes: Option<Vec<crate::file_locks::LockProcess>> }
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -325,7 +344,7 @@ fn execute(app: &tauri::AppHandle, request: FileRequest, context: &mut CopyConte
     }
     if fs::symlink_metadata(&request.source)?.file_type().is_symlink() { return Err(fail("暂不支持操作符号链接或目录联接。")); }
     match request.action {
-        Action::Trash => recycle(&source),
+        Action::Trash => { if let Some(approved) = request.approved_processes { crate::file_locks::close(&source, &approved)?; } recycle(&source) },
         Action::Rename => {
             let parent = source.parent().ok_or_else(|| fail("不能重命名磁盘根目录。"))?;
             let dest = target(&access, &text(parent), request.name.as_deref().unwrap_or(""))?;
@@ -380,4 +399,17 @@ pub fn cancel_operation(access: tauri::State<'_, Access>, job_id: String) -> Rep
         token.store(true, Ordering::Relaxed);
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn inspect_file_locks(app: tauri::AppHandle, path: String) -> Reply<Vec<crate::file_locks::LockProcess>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let access = app.state::<Access>();
+        let path = checked(&access, &path)?;
+        if path.parent().is_none() || access.roots.lock().map_err(|_| fail("访问状态不可用。"))?.contains(&path)
+            || known_locations(&app).iter().any(|location| fs::canonicalize(&location.path).ok().as_ref() == Some(&path)) {
+            return Err(fail("不能删除位置根目录。"));
+        }
+        crate::file_locks::inspect(&path)
+    }).await.map_err(|_| fail("占用检查中断。"))?
 }

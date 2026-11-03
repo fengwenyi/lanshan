@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { errorCode, errorMessage, files, normalizedPath, pathLabel } from './api';
-import type { FileRequest, OperationJob, OperationProgress } from './types';
+import type { LockProcess, FileRequest, OperationJob, OperationProgress } from './types';
 interface QueueState {
   jobs: OperationJob[];
   open: boolean;
@@ -9,7 +9,7 @@ interface QueueState {
   enqueue: (requests: FileRequest[]) => void;
   cancel: (id: string) => void;
   skip: (id: string) => void;
-  retry: (id: string, name?: string) => void;
+  retry: (id: string, name?: string, approved?: LockProcess[]) => void;
   clearFinished: () => void;
   toggle: () => void;
   togglePause: () => void;
@@ -34,7 +34,7 @@ async function pump(): Promise<void> {
         patch(job.id, { status: 'done', error: undefined, cancelRequested: false });
       } catch (error: unknown) {
         const code = errorCode(error);
-        patch(job.id, { status: code === 'OPERATION_CANCELLED' ? 'cancelled' : 'failed', error: errorMessage(error), errorCode: code, cancelRequested: false });
+        patch(job.id, { request: { ...job.request, approved_processes: undefined }, status: code === 'OPERATION_CANCELLED' ? 'cancelled' : 'failed', error: errorMessage(error), errorCode: code, cancelRequested: false });
       } finally {
         useQueue.setState((s) => ({ revision: s.revision + 1 }));
         window.dispatchEvent(new CustomEvent<FileRequest>('lanshan:operation-settled', { detail: job.request }));
@@ -66,10 +66,10 @@ export const useQueue = create<QueueState>((set, get) => ({
     }
   },
   skip: (id) => { const job = get().jobs.find((value) => value.id === id); if (job && (job.status === 'waiting' || job.status === 'failed')) patch(id, { status: 'skipped' }); },
-  retry: (id, name) => {
+  retry: (id, name, approved) => {
     const job = get().jobs.find((value) => value.id === id);
     if (!job || job.status !== 'failed') return;
-    patch(id, { status: 'waiting', request: { ...job.request, ...(name ? { name } : {}) }, label: name || job.label, progress: initialProgress(), error: undefined, errorCode: undefined });
+    patch(id, { status: 'waiting', request: { ...job.request, approved_processes: approved, ...(name ? { name } : {}) }, label: name || job.label, progress: initialProgress(), error: undefined, errorCode: undefined });
     void pump();
   },
   clearFinished: () => set((s) => ({ jobs: s.jobs.filter((job) => ['waiting', 'running', 'failed'].includes(job.status) || s.jobs.some((dependent) => dependent.dependencyId === job.id && ['waiting', 'running', 'failed'].includes(dependent.status))) })),

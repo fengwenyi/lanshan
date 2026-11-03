@@ -2,7 +2,7 @@ import type { TabState } from './store';
 
 export const WORKSPACE_KEY = 'lanshan.workspace.v1';
 export interface Favorite { name: string; path: string }
-interface SavedPane { history: string[]; cursor: number; view: 'list' | 'grid' }
+interface SavedPane { history: string[]; cursor: number; view: 'list' | 'grid' | 'gallery' }
 interface SavedTab { panes: SavedPane[]; activePane: number }
 export interface SavedWorkspace { version: 1; tabs: SavedTab[]; activeTab: number; inspector: boolean; favorites: Favorite[] }
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -17,7 +17,7 @@ export function parseWorkspace(value: unknown): SavedWorkspace | null {
     const panes: SavedPane[] = [];
     const rawPanes: unknown[] = raw.panes;
     for (const item of rawPanes) {
-      if (!object(item) || !Array.isArray(item.history) || item.history.length > 30 || typeof item.cursor !== 'number' || !Number.isInteger(item.cursor) || item.cursor < -1 || item.cursor >= item.history.length || (item.history.length > 0 && item.cursor < 0) || (item.view !== 'list' && item.view !== 'grid')) return null;
+      if (!object(item) || !Array.isArray(item.history) || item.history.length > 30 || typeof item.cursor !== 'number' || !Number.isInteger(item.cursor) || item.cursor < -1 || item.cursor >= item.history.length || (item.history.length > 0 && item.cursor < 0) || (item.view !== 'list' && item.view !== 'grid' && item.view !== 'gallery')) return null;
       const history: unknown[] = item.history;
       if (!history.every(validPath)) return null;
       panes.push({ history, cursor: item.cursor, view: item.view });

@@ -3,7 +3,8 @@ export interface FileEntry { name: string; path: string; isDirectory: boolean; i
 export interface Directory { path: string; parent: string | null; entries: FileEntry[]; ancestors: { name: string; path: string }[]; skipped: number }
 export interface SearchResult { entries: FileEntry[]; scanned: number; skipped: number; limited: boolean }
 export type FileAction = 'createFolder' | 'rename' | 'copy' | 'move' | 'trash';
-export interface FileRequest { action: FileAction; source: string; destination?: string; name?: string }
+export interface LockProcess { pid: number; started: [number, number]; name: string }
+export interface FileRequest { approved_processes?: LockProcess[]; action: FileAction; source: string; destination?: string; name?: string }
 
 export interface OperationProgress { phase: 'scanning' | 'copying' | 'complete'; bytes: number; totalBytes: number }
 export type JobStatus = 'waiting' | 'running' | 'done' | 'failed' | 'cancelled' | 'skipped';

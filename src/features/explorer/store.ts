@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { usePreferences } from './preferences';
 import type { FileEntry } from './types';
 import { favoriteKey, readWorkspace, validPath, workspaceSnapshot, WORKSPACE_KEY, type Favorite } from './workspaceStorage';
 
@@ -6,11 +7,11 @@ export interface PaneState {
   id: string;
   history: string[];
   cursor: number;
-  view: 'grid' | 'list';
+  view: 'grid' | 'list' | 'gallery';
 }
 export interface TabState { id: string; panes: PaneState[]; activePaneId: string }
 const id = () => crypto.randomUUID();
-const pane = (path = ''): PaneState => ({ id: id(), history: path ? [path] : [], cursor: path ? 0 : -1, view: 'list' });
+const pane = (path = ''): PaneState => ({ id: id(), history: path ? [path] : [], cursor: path ? 0 : -1, view: usePreferences.getState().defaultView });
 const tab = (path = ''): TabState => { const first = pane(path); return { id: id(), panes: [first], activePaneId: first.id }; };
 export const panePath = (value: PaneState): string => value.history[value.cursor] ?? '';
 interface ExplorerState {
@@ -25,6 +26,8 @@ interface ExplorerState {
   activateTab: (tabId: string) => void;
   addTab: (path?: string) => void;
   closeTab: (tabId: string) => void;
+  duplicateTab: (tabId: string) => void;
+  closeTabs: (tabId: string, scope: 'others' | 'right' | 'all') => void;
   focusPane: (paneId: string) => void;
   navigate: (paneId: string, path: string) => void;
   step: (paneId: string, offset: number) => void;
@@ -59,6 +62,22 @@ export const useExplorer = create<ExplorerState>((set) => ({
     const remaining = s.tabs.filter((value) => value.id !== tabId);
     if (!remaining.length) { const next = tab(); return { tabs: [next], activeTabId: next.id }; }
     return { tabs: remaining, activeTabId: s.activeTabId === tabId ? remaining[Math.min(index, remaining.length - 1)].id : s.activeTabId };
+  }),
+  duplicateTab: (tabId) => set((s) => {
+    const index = s.tabs.findIndex((value) => value.id === tabId);
+    if (index < 0) return s;
+    if (s.tabs.length >= 12) return { storageError: '最多打开 12 个标签，请先关闭部分标签。' };
+    const source = s.tabs[index];
+    const panes = source.panes.map((value) => ({ ...value, id: id(), history: [...value.history] }));
+    const next = { id: id(), panes, activePaneId: panes[Math.max(0, source.panes.findIndex((value) => value.id === source.activePaneId))].id };
+    return { tabs: [...s.tabs.slice(0, index + 1), next, ...s.tabs.slice(index + 1)], activeTabId: next.id };
+  }),
+  closeTabs: (tabId, scope) => set((s) => {
+    const index = s.tabs.findIndex((value) => value.id === tabId);
+    if (index < 0) return s;
+    const remaining = scope === 'others' ? [s.tabs[index]] : scope === 'right' ? s.tabs.slice(0, index + 1) : [];
+    if (!remaining.length) { const next = tab(); return { tabs: [next], activeTabId: next.id }; }
+    return { tabs: remaining, activeTabId: remaining.some((value) => value.id === s.activeTabId) ? s.activeTabId : tabId };
   }),
   focusPane: (paneId) => set((s) => ({ tabs: s.tabs.map((value) => value.panes.some((item) => item.id === paneId) ? { ...value, activePaneId: paneId } : value) })),
   navigate: (paneId, path) => set((s) => !validPath(path) ? { storageError: '请输入完整的 Windows 文件夹路径。' } : ({ tabs: updatePane(s.tabs, paneId, (value) => {
