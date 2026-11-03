@@ -1,0 +1,83 @@
+// All entries and browser storage are in-memory fixtures. No actual files are renamed.
+const { createRequire } = require('node:module');
+const path = require('node:path');
+const appRoot = path.resolve(__dirname, '..');
+const req = createRequire(path.join(appRoot, 'package.json'));
+const esbuild = createRequire(req.resolve('vite'))('esbuild');
+const code = String.raw`
+import assert from 'node:assert/strict';
+import { defaultRenameRule, invalidName, renamePlan } from './src/features/explorer/rename';
+import { WORKSPACE_KEY, favoriteKey, parseWorkspace, readWorkspace, workspaceSnapshot } from './src/features/explorer/workspaceStorage';
+import { useExplorer, useTransfer, panePath } from './src/features/explorer/store';
+export function restoredSnapshot() { return workspaceSnapshot(useExplorer.getState()); }
+export function run() {
+ let count = 0;
+ const equal = (actual, expected, message) => { assert.deepEqual(actual, expected, message); count++; };
+ const file = (name) => ({ name, path: 'E:/docs/' + name, extension: name.split('.').pop(), size: 20, modified: 1, isDirectory: false, isSymlink: false });
+ const entries = [file('Report.PDF'), file('Notes.txt')];
+ let rows = renamePlan(entries, entries, { ...defaultRenameRule, prefix: '2026-', suffix: '-final' });
+ equal(rows.map((r) => r.name), ['2026-Report-final.PDF','2026-Notes-final.txt']);
+ equal(rows.some((r) => r.error), false);
+ rows = renamePlan([file('a.a.txt')], [file('a.a.txt')], { ...defaultRenameRule, mode: 'replace', find: 'a', replacement: '$1' });
+ equal(rows[0].name, '$1.$1.txt', 'replacement is literal');
+ rows = renamePlan(entries, entries, { ...defaultRenameRule, mode: 'sequence', base: '照片-', start: 9, digits: 3 });
+ equal(rows.map((r) => r.name), ['照片-009.PDF','照片-010.txt']);
+ rows = renamePlan([file('x.txt'),file('y.txt')], [file('x.txt'),file('y.txt')], { ...defaultRenameRule, mode: 'replace', find: 'y', replacement: 'x' });
+ equal(rows.every((r) => !!r.error), true, 'duplicate target includes unchanged names');
+ rows = renamePlan([file('a.txt')], [file('a.txt'),file('b.txt')], { ...defaultRenameRule, mode: 'replace', find: 'a', replacement: 'b' });
+ equal(!!rows[0].error, true, 'occupied target is blocked even if selected elsewhere');
+ equal(!!renamePlan([file('A.txt')], [file('A.txt')], { ...defaultRenameRule, mode: 'replace', find: 'A', replacement: 'a' })[0].error, true);
+ equal(renamePlan(entries, entries, defaultRenameRule).every((r) => r.unchanged && !r.error), true);
+ equal(!!renamePlan(entries, entries, { ...defaultRenameRule, mode: 'replace' })[0].error, true);
+ equal(!!renamePlan(entries, entries, { ...defaultRenameRule, mode: 'sequence', start: NaN })[0].error, true);
+ equal(['CON.txt','a/b.txt','a.','a ','x\u0000.txt','x'.repeat(256)].every(invalidName), true);
+ equal(invalidName('中文 📷.jpg'), false);
+ equal(!!renamePlan([file('gone.txt')], [], { ...defaultRenameRule, prefix: 'new-' })[0].error, true);
+ const saved = { version: 1, tabs: [{ panes: [{ history: ['E:/docs'], cursor: 0, view: 'grid' }, { history: [], cursor: -1, view: 'list' }], activePane: 1 }], activeTab: 0, inspector: false, favorites: [{ name: '文稿', path: 'E:/docs' }] };
+ equal(parseWorkspace(saved), saved);
+ equal(parseWorkspace({ ...saved, version: 99 }), null);
+ equal(parseWorkspace({ ...saved, activeTab: 10 }), null);
+ equal(parseWorkspace({ ...saved, tabs: [{ ...saved.tabs[0], activePane: 3 }] }), null);
+ equal(parseWorkspace({ ...saved, tabs: [{ panes: [{ history: ['../secret'], cursor: 0, view: 'list' }], activePane: 0 }] }), null);
+ equal(parseWorkspace({ ...saved, tabs: [{ panes: [{ history: ['E:/docs'], cursor: -1, view: 'list' }], activePane: 0 }] }), null);
+ equal(parseWorkspace({ ...saved, favorites: [...saved.favorites, { name: '另一个', path: 'e:\\docs\\' }] }).favorites.length, 1);
+ equal(favoriteKey('\\\\?\\UNC\\server\\share\\'), favoriteKey('\\\\server\\share'));
+ equal(!!readWorkspace({ getItem: () => '{broken' }).error, true);
+ equal(!!readWorkspace({ getItem: () => { throw new Error('denied'); } }).error, true);
+ equal(!!readWorkspace({ getItem: () => 'x'.repeat(512001) }).error, true);
+ const before = useExplorer.getState();
+ const paneId = before.tabs[0].panes[0].id;
+ for (let n = 0; n < 35; n++) useExplorer.getState().navigate(paneId, 'E:/docs/' + n);
+ let state = useExplorer.getState();
+ equal(state.tabs[0].panes[0].history.length, 30);
+ equal(panePath(state.tabs[0].panes[0]), 'E:/docs/34');
+ state.toggleSplit(); state = useExplorer.getState();
+ equal(state.tabs[0].panes.length, 2);
+ state.addFavorite('E:/docs','文稿'); useExplorer.getState().addFavorite('e:\\docs\\','重复');
+ equal(useExplorer.getState().favorites.length, 1);
+ const snapshot = workspaceSnapshot(useExplorer.getState());
+ equal(parseWorkspace(snapshot), snapshot);
+ equal(JSON.parse(window.localStorage.getItem(WORKSPACE_KEY)), snapshot);
+ equal('roots' in snapshot || 'jobs' in snapshot || 'clipboard' in snapshot, false);
+ equal(useTransfer.getState().clipboard, null);
+ const storage = window.localStorage;
+ window.localStorage = { ...storage, setItem: () => { throw new Error('quota'); } };
+ useExplorer.getState().toggleInspector();
+ equal(!!useExplorer.getState().storageError, true, 'write failure must remain visible and nonfatal');
+ window.localStorage = storage;
+ console.log('Rename and workspace: ' + count + ' assertions passed; all storage and entries are fixtures.');
+}
+`;
+async function main() {
+  const result = await esbuild.build({ stdin: { contents: code, loader: 'ts', resolveDir: appRoot }, bundle: true, platform: 'node', format: 'cjs', write: false, logLevel: 'silent' });
+  const memory = new Map();
+  globalThis.window = { localStorage: { getItem: (key) => memory.get(key) ?? null, setItem: (key, value) => memory.set(key, value) } };
+  const compiled = { exports: {} };
+  new Function('require', 'module', 'exports', result.outputFiles[0].text)(req, compiled, compiled.exports);
+  compiled.exports.run();
+  const restored = { exports: {} };
+  new Function('require', 'module', 'exports', result.outputFiles[0].text)(req, restored, restored.exports);
+  require('node:assert/strict').deepEqual(restored.exports.restoredSnapshot(), JSON.parse(memory.get('lanshan.workspace.v1')));
+  console.log('Workspace module reload: saved tabs, pane focus, views, inspector and favorites restored.');
+}
+main().catch((error) => { console.error(error); process.exitCode = 1; });
