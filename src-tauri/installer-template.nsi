@@ -1,5 +1,5 @@
 ; Based on tauri-cli-v2.11.4 upstream NSIS template.
-; Only default directory names are customized; keep product identity unchanged.
+; Use lanshan for bundle/directory names and keep the Chinese Windows display name.
 Unicode true
 ManifestDPIAware true
 ; Add in `dpiAwareness` `PerMonitorV2` to manifest for Windows 10 1607+ (note this should not affect lower versions since they should be able to ignore this and pick up `dpiAware` `true` set by `ManifestDPIAware true`)
@@ -40,7 +40,9 @@ ${StrLoc}
 !define WEBVIEW2APPGUID "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 
 !define MANUFACTURER "{{manufacturer}}"
-!define PRODUCTNAME "{{product_name}}"
+; product_name is lanshan for the installer filename; retain the existing
+; shortcut, installer UI and registry identity independently.
+!define PRODUCTNAME "览山"
 !define INSTALLDIRNAME "lanshan"
 !define VERSION "{{version}}"
 !define VERSIONWITHBUILD "{{version_with_build}}"
