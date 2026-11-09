@@ -32,6 +32,14 @@ Windows 桌面文件管理器，采用 macOS Finder 风格，支持多标签、�
 
 开启双栏后，每个文件窗格各有第 3–9 区；可称为“左窗格的地址栏”“右窗格的文件展示区”。窄窗口下双栏会改为上下排列，可称为“上窗格 / 下窗格”。双栏模式还会在文件操作栏下面增加“跨栏操作栏”，包含“复制到另一栏”“移动到另一栏”。
 
+## 设为默认文件管理器
+
+安装桌面版后，在“编辑 → 设置 → 默认文件管理器”中点击“设为默认文件管理器”。这会更改当前 Windows 用户的普通文件夹、磁盘默认打开操作，外部传入的目录会在新的览山窗口中打开。可点击“恢复原来的打开方式”还原接管前的配置；若后来已被其他软件更改，恢复时会保留新的选择。卸载时也会先恢复，更新安装则保留接管设置。
+
+此功能不接管 Win+E、“此电脑”等系统特殊位置、显式启动 explorer.exe 的程序，以及应用内的文件选择窗口。开发构建不允许启用接管，请使用安装后的稳定路径，避免构建目录被清理后无法打开文件夹。设置中的普通“恢复默认”按钮仅重置界面偏好，不更改系统文件夹关联。
+
+注册表逻辑可用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-default-manager.ps1` 验证，测试使用内存注册表，不修改本机关联。Windows Shell 默认命令机制参见 [Microsoft 文档](https://learn.microsoft.com/en-us/windows/win32/shell/context)。
+
 ## 开发启动
 
 需要 Windows 10/11、WebView2、Rust stable、Visual Studio C++ Build Tools、Node.js 及 pnpm。首次安装依赖后从本项目根目录启动：

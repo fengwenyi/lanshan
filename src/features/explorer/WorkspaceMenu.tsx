@@ -8,6 +8,7 @@ import { defaultIconLayout } from './iconLayout';
 import { useIconLayouts } from './iconLayoutStore';
 import { favoriteKey } from './workspaceStorage';
 import { version } from '../../../package.json';
+import { DefaultManagerSetting } from './DefaultManagerSetting';
 
 export function WorkspaceMenu() {
   const preferences = usePreferences();
@@ -85,6 +86,7 @@ export function WorkspaceMenu() {
         <label><span>默认视图<small>应用于新标签和新窗格</small></span><select value={preferences.defaultView} onChange={(e) => preferences.change({ defaultView: e.target.value === 'grid' ? 'grid' : 'list' })}><option value="list">列表</option><option value="grid">图标</option></select></label>
         <label><span>紧凑列表<small>缩小行间距，显示更多文件</small></span><input type="checkbox" checked={preferences.compact} onChange={(e) => preferences.change({ compact: e.target.checked })} /></label>
         {preferences.error && <p role="alert">{preferences.error}</p>}
+        <DefaultManagerSetting />
         <div className="dialog-buttons"><button className="secondary-button" onClick={() => { preferences.reset(); if (!explorer.inspector) explorer.toggleInspector(); }}>恢复默认</button><Dialog.Close className="primary-button">完成</Dialog.Close></div>
       </div> : <><div className="about-details"><strong>览山 LANSHAN</strong><span>版本 {version}</span><p>桌面文件管理工具，支持多标签、双栏浏览、文件预览和批量整理。</p><span>开源许可 · MIT</span></div><div className="dialog-buttons"><Dialog.Close className="primary-button">关闭</Dialog.Close></div></>}
     </Dialog.Content></Dialog.Portal></Dialog.Root>

@@ -786,6 +786,16 @@ Section Uninstall
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
+  ; Restore this user's folder defaults before removing the executable.
+  ; Preserve registration during application updates.
+  ${If} $UpdateMode != 1
+    ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --restore-default-manager' $0
+    ${If} $0 != 0
+      MessageBox MB_OK|MB_ICONSTOP "Could not restore folder defaults. Open Lanshan settings and restore the original file manager before uninstalling."
+      Abort
+    ${EndIf}
+  ${EndIf}
+
   ; Delete the app directory and its content from disk
   ; Copy main executable
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"

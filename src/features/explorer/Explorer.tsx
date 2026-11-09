@@ -2,6 +2,7 @@ import { ToolbarItem, ToolbarCustomization } from './ToolbarCustomization';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
 import { Columns2, FolderOpen, HardDrive, ListChecks, Minus, Mountain, PanelLeft, TextCursorInput, Plus, Square, Copy, Star, X } from 'lucide-react';
 import { desktop, errorMessage, files, normalizedPath, pathLabel } from './api';
 import { panePath, useExplorer } from './store';
@@ -28,6 +29,17 @@ export function Explorer() {
   const [toolbarMenu, setToolbarMenu] = useState<{ x: number; y: number } | null>(null);
   const [customizingToolbar, setCustomizingToolbar] = useState(false);
   const [maximized, setMaximized] = useState(false);
+  useEffect(() => {
+    if (!desktop) return;
+    let disposed = false;
+    void invoke<string | null>('startup_folder').then((path) => {
+      if (disposed || !path) return;
+      const current = useExplorer.getState();
+      const tab = current.tabs.find((item) => item.id === current.activeTabId) ?? current.tabs[0];
+      current.navigate(tab.activePaneId, path);
+    }).catch((e: unknown) => { if (!disposed) setError(errorMessage(e)); });
+    return () => { disposed = true; };
+  }, []);
   useEffect(() => {
     if (!desktop) return;
     let disposed = false;

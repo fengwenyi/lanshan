@@ -57,6 +57,17 @@ fn grant(access: &Access, path: &Path) -> Reply<String> {
     if !roots.contains(&path) { roots.push(path.clone()); }
     Ok(text(&path))
 }
+#[tauri::command]
+pub async fn startup_folder(app: tauri::AppHandle) -> Reply<Option<String>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut args = std::env::args_os().skip(1);
+        if args.next().as_deref() != Some(std::ffi::OsStr::new("--open-folder")) { return Ok(None); }
+        let path = args.next().ok_or_else(|| fail("缺少要打开的文件夹路径。"))?;
+        let path = PathBuf::from(path);
+        if !path.is_absolute() { return Err(fail("请输入完整的文件夹路径。")); }
+        grant(&app.state::<Access>(), &path).map(Some)
+    }).await.map_err(|_| fail("无法打开传入的文件夹。"))?
+}
 pub(crate) fn checked(access: &Access, path: &str) -> Reply<PathBuf> {
     let candidate = Path::new(path);
     if !candidate.is_absolute() { return Err(fail("请输入完整的绝对路径。")); }
